@@ -11,10 +11,10 @@
 #include "wizconsoledialog.h"
 #include "wizCategoryView.h"
 #include "wizDocumentListView.h"
-#include "wizDocumentView.h"
 #include "wizcertmanager.h"
 #include "wizusercipherform.h"
 //#include "wizdownloadobjectdatadialog.h"
+#include "wizDocumentView.h"
 
 class QToolBar;
 class QLabel;
@@ -22,7 +22,6 @@ class QLabel;
 class CWizProgressDialog;
 class CWizDocumentListView;
 class CWizDocumentSelectionView;
-class CWizDocumentView;
 class CWizDocumentTransitionView;
 class CWizActions;
 class CWizDocumentViewHistory;
@@ -37,11 +36,24 @@ class CWizSearcher;
 class CWizSearchIndexer;
 
 class QtSegmentControl;
-class CWizGroupMessage;
 class CWizObjectDataDownloaderHost;
 class CWizUserAvatarDownloaderHost;
 class CWizKMSyncThread;
 class CWizUserVerifyDialog;
+
+class CWizDocumentWebView;
+
+namespace WizService {
+namespace Internal {
+class MessageListView;
+}
+}
+
+namespace Core {
+class ICore;
+class CWizDocumentView;
+
+namespace Internal {
 
 class MainWindow
     : public QMainWindow
@@ -72,6 +84,7 @@ protected:
     virtual void closeEvent(QCloseEvent* event);
 
 private:
+    ICore* m_core;
     CWizDatabaseManager& m_dbMgr;
     CWizProgressDialog* m_progress;
     CWizUserSettings* m_settings;
@@ -80,11 +93,10 @@ private:
     QPointer<QTimer> m_syncTimer;
     QPointer<CWizConsoleDialog> m_console;
     QPointer<CWizUpgrade> m_upgrade;
-    QPointer<CWizCertManager> m_certManager;
     QPointer<CWizUserCipherForm> m_cipherForm;
 
     CWizObjectDataDownloaderHost* m_objectDownloaderHost;
-    CWizUserAvatarDownloaderHost* m_avatarDownloaderHost;
+    //CWizUserAvatarDownloaderHost* m_avatarDownloaderHost;
 
     QToolBar* m_toolBar;
     QMenuBar* m_menuBar;
@@ -98,6 +110,8 @@ private:
     CWizActions* m_actions;
     QPointer<CWizCategoryView> m_category;
     CWizDocumentListView* m_documents;
+    WizService::Internal::MessageListView* m_msgList;
+    QWidget* m_noteList;
     CWizDocumentSelectionView* m_documentSelection;
     CWizDocumentView* m_doc;
     CWizDocumentTransitionView* m_transitionView;
@@ -145,7 +159,7 @@ public:
     CWizUserCipherForm* cipherForm() const { return m_cipherForm; }
     //CWizDownloadObjectDataDialog* objectDownloadDialog() const { return m_objectDownloadDialog; }
     CWizObjectDataDownloaderHost* downloaderHost() const { return m_objectDownloaderHost; }
-    CWizUserAvatarDownloaderHost* avatarHost() const { return m_avatarDownloaderHost; }
+    //CWizUserAvatarDownloaderHost* avatarHost() const { return m_avatarDownloaderHost; }
     CWizProgressDialog* progressDialog() const { return m_progress; }
     CWizDocumentTransitionView* transitionView() const { return m_transitionView; }
 
@@ -161,10 +175,12 @@ public:
 public Q_SLOTS:
     void on_actionExit_triggered();
     void on_actionConsole_triggered();
+    void on_actionAutoSync_triggered();
     void on_actionSync_triggered();
     void on_actionNewNote_triggered();
     void on_actionLogout_triggered();
     void on_actionAbout_triggered();
+    void on_actionAboutPlugins_triggered();
     void on_actionPreference_triggered();
     void on_actionRebuildFTS_triggered();
     void on_actionFeedback_triggered();
@@ -216,12 +232,12 @@ public Q_SLOTS:
 
     void on_category_itemSelectionChanged();
     void on_documents_itemSelectionChanged();
+    void on_message_itemSelectionChanged();
     void on_documents_documentCountChanged();
     void on_documents_hintChanged(const QString& strHint);
     void on_documents_viewTypeChanged(int type);
     void on_documents_sortingTypeChanged(int type);
-    void on_document_requestView(const WIZDOCUMENTDATA& doc);
-    void on_document_contentChanged();
+    //void on_document_contentChanged();
 
     void on_search_doSearch(const QString& keywords);
     void on_options_settingsChanged(WizOptionsType type);
@@ -271,9 +287,11 @@ public:
     Q_PROPERTY(QObject* DatabaseManager READ DatabaseManager)
 
     Q_INVOKABLE QObject* CreateWizObject(const QString& strObjectID);
-    Q_INVOKABLE void ResetInitialStyle();
     Q_INVOKABLE void SetSavingDocument(bool saving);
     Q_INVOKABLE void ProcessClipboardBeforePaste(const QVariantMap& data);
 };
+
+} // namespace Internal
+} // namespace Core
 
 #endif // WIZMAINWINDOW_H

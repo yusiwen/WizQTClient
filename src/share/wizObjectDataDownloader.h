@@ -5,7 +5,7 @@
 #include <QMap>
 
 #include "wizobject.h"
-#include "wizapi.h"
+//#include "wizapi.h"
 
 class CWizApi;
 class CWizDatabase;
@@ -74,6 +74,9 @@ public:
 private:
     CWizDatabaseManager& m_dbMgr;
     WIZOBJECTDATA m_data;   // current downdowing object
+
+public Q_SLOTS:
+    void onTokenAcquired(const QString& strToken);
 
 Q_SIGNALS:
     void downloaded(bool succeeded);

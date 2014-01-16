@@ -2,14 +2,27 @@
 
 #include <QDebug>
 
+#include "wizDatabase.h"
+#include "utils/logger.h"
+
+static CWizDatabaseManager* m_instance = 0;
+
+CWizDatabaseManager* CWizDatabaseManager::instance()
+{
+    return m_instance;
+}
+
 CWizDatabaseManager::CWizDatabaseManager(const QString& strUserId)
     : m_strUserId(strUserId)
 {
-    m_mapGroups.clear();
+    Q_ASSERT(!m_instance);
+
+    m_instance = this;
 }
 
 CWizDatabaseManager::~CWizDatabaseManager()
 {
+    m_instance = 0;
     closeAll();
 }
 
@@ -238,6 +251,8 @@ void CWizDatabaseManager::initSignals(CWizDatabase* db)
             SIGNAL(folderCreated(const QString&)));
     connect(db, SIGNAL(folderDeleted(const QString&)),
             SIGNAL(folderDeleted(const QString&)));
+    connect(db, SIGNAL(folderPositionChanged()),
+            SIGNAL(folderPositionChanged()));
 }
 
 void CWizDatabaseManager::on_groupDatabaseOpened(CWizDatabase* pDb, const QString& strKbGUID)

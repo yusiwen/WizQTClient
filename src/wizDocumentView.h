@@ -1,76 +1,86 @@
-#ifndef WIZDOCUMENTVIEW_H
-#define WIZDOCUMENTVIEW_H
+#ifndef CORE_WIZDOCUMENTVIEW_H
+#define CORE_WIZDOCUMENTVIEW_H
 
-#include <QWidget>
-#include <QPointer>
-#include <QTimer>
+#include <coreplugin/inoteview.h>
 
-#include "wizdef.h"
 #include "share/wizobject.h"
-#include "share/wizsettings.h"
-#include "share/wizuihelper.h"
 
-class CWizScrollBar;
-class CWizDocumentWebView;
-class CWizDatabase;
-class CWizTagListWidget;
-class CWizAttachmentListWidget;
-class CWizNoteInfoForm;
-class CWizEditorToolBar;
-
+class QWebView;
 class QScrollArea;
 class QLineEdit;
 
-class CWizTitleBar;
-class CWizInfoToolBar;
-class CWizNotifyToolbar;
+struct WIZDOCUMENTDATA;
+struct WIZDOCUMENTATTACHMENTDATA;
+class CWizExplorerApp;
+class CWizDatabaseManager;
+class CWizUserSettings;
+class CWizScrollBar;
+class CWizDocumentWebView;
+class CWizDatabase;
+class CWizSplitter;
+
+class QWebFrame;
 
 
-class CWizDocumentView : public QWidget
+namespace Core {
+namespace Internal {
+class TitleBar;
+class EditorToolBar;
+} // namespace Internal
+
+class CWizDocumentView : public INoteView
 {
     Q_OBJECT
 
 public:
     CWizDocumentView(CWizExplorerApp& app, QWidget* parent = 0);
+    ~CWizDocumentView();
     virtual QSize sizeHint() const { return QSize(200, 1); }
 
     QWidget* client() const { return m_client; }
     CWizDocumentWebView* web() const { return m_web; }
+    QWebView* commentView() const { return m_comments; }
 
 protected:
     CWizExplorerApp& m_app;
     CWizDatabaseManager& m_dbMgr;
     CWizUserSettings& m_userSettings;
     CWizDocumentWebView* m_web;
-    QPointer<CWizTitleBar> m_title;
-    QPointer<QWidget> m_client;
-    QPointer<CWizTagListWidget> m_tags;
-    QPointer<CWizAttachmentListWidget> m_attachments;
-    QPointer<CWizNoteInfoForm> m_info;
+    QWebView* m_comments;
+    CWizSplitter* m_splitter;
+    Core::Internal::TitleBar* m_title;
+    QWidget* m_client;
 
-    // indicate current document editing status
-    bool m_editingDocument;
+    virtual void showEvent(QShowEvent *event);
 
-    WizDocumentViewMode m_viewMode;
+private:
+    WIZDOCUMENTDATA m_note;
+    bool m_bLocked; // note is force locked as readonly status
+    bool m_bEditingMode; // true: editing mode, false: reading mode
+    int m_viewMode; // user defined editing mode
 
 public:
-    bool viewDocument(const WIZDOCUMENTDATA& data, bool forceEdit);
-    void reloadDocument(bool bIncludeData);
-    void setReadOnly(bool b, bool isGroup);
+    const WIZDOCUMENTDATA& note() const { return m_note; }
+    bool isLocked() const { return m_bLocked; }
+    bool isEditing() const { return m_bEditingMode; }
+    bool defaultEditingMode();
+    bool reload();
+    void reloadNote();
+    void setEditorFocus();
+
+    void initStat(const WIZDOCUMENTDATA& data, bool bEditing);
+    void viewNote(const WIZDOCUMENTDATA& data, bool forceEdit);
     void showClient(bool visible);
-    void editDocument(bool editing);
-    void setViewMode(WizDocumentViewMode mode);
+    void setEditNote(bool bEdit);
+    void setViewMode(int mode);
     void setModified(bool modified);
     void settingsChanged();
 
-public Q_SLOTS:
-    void on_titleEdit_editingFinished();
-    void on_titleEdit_returnPressed();
+    QWebFrame* noteFrame();
 
-    void on_title_editButtonClicked();
-    void on_title_tagButtonClicked();
-    void on_title_attachButtonClicked();
-    void on_title_infoButtonClicked();
+public Q_SLOTS:
+    void onViewNoteRequested(Core::INoteView* view, const WIZDOCUMENTDATA& doc);
+    void onViewNoteLoaded(Core::INoteView*,const WIZDOCUMENTDATA&,bool);
 
     void on_document_modified(const WIZDOCUMENTDATA& documentOld,
                               const WIZDOCUMENTDATA& documentNew);
@@ -78,9 +88,8 @@ public Q_SLOTS:
 
     void on_attachment_created(const WIZDOCUMENTATTACHMENTDATA& attachment);
     void on_attachment_deleted(const WIZDOCUMENTATTACHMENTDATA& attachment);
-
-    void on_webview_focusIn();
-    void on_webview_focusOut();
 };
 
-#endif // WIZDOCUMENTVIEW_H
+} // namespace Core
+
+#endif // CORE_WIZDOCUMENTVIEW_H

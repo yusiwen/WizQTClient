@@ -2,18 +2,22 @@
 
 #include <QMenu>
 #include <QFileDialog>
+#include <QMessageBox>
 
 #include "wizdef.h"
 #include "share/wizsettings.h"
 #include "share/wizDatabaseManager.h"
-#include "share/wizUserAvatar.h"
 #include "../wizmainwindow.h"
-#include "share/wizApiEntry.h"
+#include "sync/apientry.h"
 #include "sync/wizkmxmlrpc.h"
 #include "wizWebSettingsDialog.h"
-#include "sync/wizAvatarUploader.h"
-#include "sync/wizCloudPool.h"
+#include "sync/avataruploader.h"
+#include "sync/avatar.h"
+#include "sync/token.h"
 
+using namespace WizService;
+using namespace WizService::Internal;
+using namespace Core::Internal;
 
 
 CWizUserInfoWidget::CWizUserInfoWidget(CWizExplorerApp& app, QWidget *parent)
@@ -24,7 +28,11 @@ CWizUserInfoWidget::CWizUserInfoWidget(CWizExplorerApp& app, QWidget *parent)
 {
     setPopupMode(QToolButton::MenuButtonPopup);
 
-    resetAvatar(false);
+    connect(AvatarHost::instance(), SIGNAL(loaded(const QString&)),
+            SLOT(on_userAvatar_loaded(const QString&)));
+
+    AvatarHost::load(m_db.getUserId());
+
     resetUserInfo();
 
     connect(&m_db, SIGNAL(userInfoChanged()), SLOT(on_userInfo_changed()));
@@ -51,12 +59,6 @@ CWizUserInfoWidget::CWizUserInfoWidget(CWizExplorerApp& app, QWidget *parent)
     m_menuMain->addSeparator();
     m_menuMain->addAction(actionChangeAvatar);
     setMenu(m_menuMain);
-
-    // avatar
-    MainWindow* mainWindow = qobject_cast<MainWindow *>(m_app.mainWindow());
-    m_avatarDownloader = mainWindow->avatarHost();
-    connect(m_avatarDownloader, SIGNAL(downloaded(const QString&)),
-            SLOT(on_userAvatar_downloaded(const QString&)));
 }
 
 QSize CWizUserInfoWidget::sizeHint() const
@@ -83,9 +85,13 @@ void CWizUserInfoWidget::paintEvent(QPaintEvent *event)
     QRect rectIcon = opt.rect;
     rectIcon.setLeft(rectIcon.left());
     rectIcon.setRight(rectIcon.left() + nAvatarWidth);
-    if (!opt.icon.isNull()) {
-        opt.icon.paint(&p, rectIcon);
-    }
+
+    QPixmap pixmap;
+    AvatarHost::avatar(m_db.GetUserId(), &pixmap);
+    p.drawPixmap(rectIcon, pixmap);
+    //if (!opt.icon.isNull()) {
+    //    opt.icon.paint(&p, rectIcon);
+    //}
 
     // draw vip indicator
     QRect rectVip = rectIcon;
@@ -136,28 +142,37 @@ bool CWizUserInfoWidget::hitButton(const QPoint& pos) const
     return rectArrow.contains(pos) ? true : false;
 }
 
-void CWizUserInfoWidget::resetAvatar(bool bForce)
-{
-    QString strAvatarPath = m_db.GetAvatarPath() + m_db.GetUserId() + ".png";
+//void CWizUserInfoWidget::resetAvatar(bool bForce)
+//{
+    //QString strAvatarPath = m_db.GetAvatarPath() + m_db.GetUserId() + ".png";
 
-    QFileInfo avatar(strAvatarPath);
-    if (!avatar.exists()) {
-        strAvatarPath = ::WizGetSkinResourcePath(m_app.userSettings().skin()) + "avatar.png";
-    }
+    //QFileInfo avatar(strAvatarPath);
+    //if (!avatar.exists()) {
+    //    strAvatarPath = ::WizGetSkinResourcePath(m_app.userSettings().skin()) + "avatar.png";
+    //}
 
-    bool bNeedUpdate;
-    if (avatar.exists()) {
-        bNeedUpdate = avatar.created() > QDateTime::currentDateTime().addSecs(60*60*24) ? true : false;
-    } else {
-        bNeedUpdate = true;
-    }
+    //bool bNeedUpdate;
+    //if (avatar.exists()) {
+    //    bNeedUpdate = avatar.created() > QDateTime::currentDateTime().addSecs(60*60*24) ? true : false;
+    //} else {
+    //    bNeedUpdate = true;
+    //}
 
-    if (bNeedUpdate || bForce) {
-        QTimer::singleShot(3000, this, SLOT(downloadAvatar()));
-    }
+    //if (bNeedUpdate || bForce) {
+    //    QTimer::singleShot(3000, this, SLOT(downloadAvatar()));
+    //}
 
-    setIcon(QIcon(strAvatarPath));
-}
+
+    //QPixmap pixmap;
+    //if (QPixmapCache::find(AvatarHost::keyFromGuid(m_db.GetUserId()), &pixmap)) {
+    //    setIcon(QIcon(pixmap));
+    //    return;
+    //}
+    //
+    //if (QPixmapCache::find(AvatarHost::defaultKey(), &pixmap)) {
+    //    setIcon(QIcon(pixmap));
+    //}
+//}
 
 void CWizUserInfoWidget::resetUserInfo()
 {
@@ -187,17 +202,20 @@ void CWizUserInfoWidget::resetUserInfo()
     m_iconVipIndicator.addFile(strIconPath);
 }
 
-void CWizUserInfoWidget::downloadAvatar()
-{
-    m_avatarDownloader->download(m_db.GetUserId());
-}
+//void CWizUserInfoWidget::downloadAvatar()
+//{
+//    connect(AvatarHost::instance(), SIGNAL(loaded(const QString&)),
+//            SLOT(on_userAvatar_loaded(const QString&)));
+//    AvatarHost::load(m_db.GetUserId());
+//}
 
-void CWizUserInfoWidget::on_userAvatar_downloaded(const QString& strGUID)
+void CWizUserInfoWidget::on_userAvatar_loaded(const QString& strGUID)
 {
     if (strGUID != m_db.GetUserId())
         return;
 
-    resetAvatar(false);
+    //AvatarHost::instance()->disconnect(this);
+    //resetAvatar(false);
     update();
 }
 
@@ -212,16 +230,24 @@ void CWizUserInfoWidget::on_action_accountSetup_triggered()
         m_userSettings = new CWizWebSettingsDialog(QSize(720, 400), window()); // use toplevel window as parent
         m_userSettings->setWindowTitle(tr("Account settings"));
         connect(m_userSettings, SIGNAL(accepted()), m_userSettings, SLOT(deleteLater()));
-        connect(m_userSettings, SIGNAL(showProgress()), CWizCloudPool::instance(), SLOT(getToken()));
-        connect(CWizCloudPool::instance(), SIGNAL(tokenAcquired(const QString&)),
-                SLOT(on_action_accountSetup_requested(const QString&)));
+        connect(m_userSettings, SIGNAL(showProgress()), SLOT(on_action_accountSetup_showProgress()));
     }
 
     m_userSettings->open();
 }
 
+void CWizUserInfoWidget::on_action_accountSetup_showProgress()
+{
+    connect(Token::instance(), SIGNAL(tokenAcquired(const QString&)),
+            SLOT(on_action_accountSetup_requested(const QString&)), Qt::QueuedConnection);
+
+    Token::requestToken();
+}
+
 void CWizUserInfoWidget::on_action_accountSetup_requested(const QString& strToken)
 {
+    Token::instance()->disconnect(this);
+
     if (!m_userSettings)
         return;
 
@@ -230,7 +256,7 @@ void CWizUserInfoWidget::on_action_accountSetup_requested(const QString& strToke
         return;
     }
 
-    QString strUrl = CWizApiEntry::getAccountInfoUrl(strToken);
+    QString strUrl = WizService::ApiEntry::accountInfoUrl(strToken);
     m_userSettings->load(QUrl::fromEncoded(strUrl.toUtf8()));
 }
 
@@ -250,22 +276,27 @@ void CWizUserInfoWidget::on_action_changeAvatar_triggered()
         return;
     }
 
-    CWizAvatarUploader* uploader = new CWizAvatarUploader(m_app, this);
+    AvatarUploader* uploader = new AvatarUploader(this);
     connect(uploader, SIGNAL(uploaded(bool)), SLOT(on_action_changeAvatar_uploaded(bool)));
     uploader->upload(listFiles[0]);
 }
 
 void CWizUserInfoWidget::on_action_changeAvatar_uploaded(bool ok)
 {
-    sender()->deleteLater();
+    AvatarUploader* uploader = qobject_cast<AvatarUploader*>(sender());
 
     if (ok) {
-        downloadAvatar();
+        AvatarHost::load(m_db.GetUserId(), true);
+        //downloadAvatar();
+    } else {
+        QMessageBox::warning(this, tr("Upload Avatar"), uploader->lastErrorMessage());
     }
+
+    uploader->deleteLater();
 }
 
 void CWizUserInfoWidget::on_userInfo_changed()
 {
-    resetAvatar(true);
+    AvatarHost::load(m_db.GetUserId(), true);
     resetUserInfo();
 }

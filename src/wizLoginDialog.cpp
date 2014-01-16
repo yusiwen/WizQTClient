@@ -10,9 +10,16 @@
 #include <QMessageBox>
 #include <QDesktopServices>
 
+#include <extensionsystem/pluginmanager.h>
+
 #include "sync/wizkmxmlrpc.h"
 #include "wizcreateaccountdialog.h"
 #include "wizproxydialog.h"
+
+#include "sync/apientry.h"
+#include "sync/token.h"
+
+using namespace WizService;
 
 
 //class CWizAvatarWidget : public QLabel
@@ -186,26 +193,54 @@ void CWizLoginDialog::accept()
 
 void CWizLoginDialog::doAccountVerify()
 {
-    CWizKMAccountsServer server(WizKMGetAccountsServerURL(true));
-    if (server.Login(userId(), password(), "normal") &&
-            updateProfile(userId(), server.GetUserInfo())) {
+    CWizUserSettings userSettings(userId());
+
+    // FIXME: should verify password if network is available to avoid attack?
+    if (password() != userSettings.password()) {
+        Token::setUserId(userId());
+        Token::setPasswd(password());
+        doOnlineVerify();
+        return;
+    }
+
+    if (updateUserProfile(false) && updateGlobalProfile()) {
         QDialog::accept();
-    } else {
-        QMessageBox::critical(this, tr("Verify account failed"), server.GetLastErrorMessage());
     }
 
     enableControls(true);
 }
 
-bool CWizLoginDialog::updateProfile(const QString& strUserId, const WIZKMUSERINFO& info)
+void CWizLoginDialog::doOnlineVerify()
 {
-    CWizSettings settings(::WizGetDataStorePath() + "wiznote.ini");
+    connect(Token::instance(), SIGNAL(tokenAcquired(QString)), SLOT(onTokenAcquired(QString)), Qt::QueuedConnection);
+    Token::requestToken();
+}
 
-    // set current login user as default user.
-    settings.SetString("Users", "DefaultUser", strUserId);
+void CWizLoginDialog::onTokenAcquired(const QString& strToken)
+{
+    Token::instance()->disconnect(this);
 
-    // login flags
-    CWizUserSettings userSettings(strUserId );
+    enableControls(true);
+
+    if (strToken.isEmpty()) {
+        QMessageBox::critical(0, tr("Verify account failed"), Token::lastErrorMessage());
+        return;
+    }
+
+    if (updateUserProfile(true) && updateGlobalProfile())
+        QDialog::accept();
+}
+
+bool CWizLoginDialog::updateGlobalProfile()
+{
+    QSettings* settings = ExtensionSystem::PluginManager::globalSettings();
+    settings->setValue("Users/DefaultUser", userId());
+    return true;
+}
+
+bool CWizLoginDialog::updateUserProfile(bool bLogined)
+{
+    CWizUserSettings userSettings(userId());
 
     if(m_checkAutoLogin->checkState() == Qt::Checked) {
         userSettings.setAutoLogin(true);
@@ -213,19 +248,22 @@ bool CWizLoginDialog::updateProfile(const QString& strUserId, const WIZKMUSERINF
         userSettings.setAutoLogin(false);
     }
 
-    if(m_checkSavePassword->checkState() == Qt::Checked) {
-        userSettings.setPassword(::WizEncryptPassword(password()));
-    } else {
+    if(m_checkSavePassword->checkState() != Qt::Checked) {
         userSettings.setPassword();
     }
 
-    CWizDatabase db;
-    if (db.Open(strUserId)) {
-        db.SetUserInfo(info);
+    if (bLogined) {
+        if (m_checkSavePassword->checkState() == Qt::Checked)
+            userSettings.setPassword(::WizEncryptPassword(password()));
+
+        CWizDatabase db;
+        if (!db.Open(userId())) {
+            QMessageBox::critical(0, tr("Update user profile"), QObject::tr("Can not open database while update user profile"));
+            return false;
+        }
+
+        db.SetUserInfo(Token::info());
         db.Close();
-    } else {
-        QMessageBox::critical(NULL, "", QObject::tr("Can not open database while update user profile"));
-        return false;
     }
 
     return true;
@@ -318,9 +356,9 @@ void CWizLoginDialog::on_labelNetwork_linkActivated(const QString & link)
 {
     Q_UNUSED(link);
 
-    ProxyDialog dlg(this);
-    if (QDialog::Accepted != dlg.exec())
-        return;
+    //ProxyDialog dlg(this);
+    //if (QDialog::Accepted != dlg.exec())
+    //    return;
 }
 
 void CWizLoginDialog::on_comboUsers_indexChanged(const QString &userId)

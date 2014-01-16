@@ -16,6 +16,8 @@ CWizPreferenceWindow::CWizPreferenceWindow(CWizExplorerApp& app, QWidget* parent
     setWindowIcon(QIcon());
     setWindowTitle(tr("Preference"));
 
+    connect(ui->btnClose, SIGNAL(clicked()), SLOT(accept()));
+
     // FIXME: proxy settings will back soon!!!
     ui->labelProxySettings->hide();
 
@@ -31,7 +33,7 @@ CWizPreferenceWindow::CWizPreferenceWindow(CWizExplorerApp& app, QWidget* parent
         }
     }
 
-    connect(ui->comboLang, SIGNAL(activated(int)), SLOT(on_comboLang_currentIndexChanged(int)));
+    connect(ui->comboLang, SIGNAL(activated(int)), SLOT(on_comboLang_activated(int)));
 
     // reading tab
     switch (userSettings().noteViewMode())
@@ -263,10 +265,10 @@ void CWizPreferenceWindow::labelProxy_linkActivated(const QString& link)
 {
     Q_UNUSED(link);
 
-    ProxyDialog dlg(this);
-    if (QDialog::Accepted != dlg.exec()) {
-        Q_EMIT settingsChanged(wizoptionsSync);
-    }
+    //ProxyDialog dlg(this);
+    //if (QDialog::Accepted != dlg.exec()) {
+    //    Q_EMIT settingsChanged(wizoptionsSync);
+    //}
 }
 
 void CWizPreferenceWindow::onButtonFontSelect_clicked()

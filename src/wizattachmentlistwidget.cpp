@@ -7,14 +7,21 @@
 #include <QMessageBox>
 #include <QLabel>
 
+#include <coreplugin/icore.h>
+
+#include "share/wizDatabaseManager.h"
+
 #include "wiznotestyle.h"
 #include "share/wizmisc.h"
 #include "share/wizuihelper.h"
-#include "share/wizdownloadobjectdata.h"
 #include "wizdef.h"
 #include "wizButton.h"
+#include "share/wizObjectDataDownloader.h"
 
 #include "wizmainwindow.h"
+#include "utils/pathresolve.h"
+
+using namespace Core::Internal;
 
 
 class CWizAttachmentListViewItem : public QListWidgetItem
@@ -42,13 +49,14 @@ private:
 #define WIZACTION_ATTACHMENT_OPEN   QObject::tr("Open...")
 #define WIZACTION_ATTACHMENT_DELETE QObject::tr("Delete")
 
-CWizAttachmentListView::CWizAttachmentListView(CWizExplorerApp& app, QWidget* parent)
+CWizAttachmentListView::CWizAttachmentListView(QWidget* parent)
     : CWizMultiLineListWidget(2, parent)
-    , m_app(app)
-    , m_dbMgr(app.databaseManager())
+    , m_dbMgr(*CWizDatabaseManager::instance())
 {
+    // FIXME
+    QString strTheme = "default";
     setFrameStyle(QFrame::NoFrame);
-    setStyle(WizGetStyle(m_app.userSettings().skin()));
+    setStyle(WizGetStyle(strTheme));
     setSelectionMode(QAbstractItemView::ExtendedSelection);
     setAttribute(Qt::WA_MacShowFocusRect, false);
 
@@ -66,7 +74,7 @@ CWizAttachmentListView::CWizAttachmentListView(CWizExplorerApp& app, QWidget* pa
     connect(this, SIGNAL(itemDoubleClicked(QListWidgetItem*)),
             SLOT(on_list_itemDoubleClicked(QListWidgetItem*)));
 
-    MainWindow* mainWindow = qobject_cast<MainWindow *>(m_app.mainWindow());
+    MainWindow* mainWindow = qobject_cast<MainWindow *>(Core::ICore::mainWindow());
     m_downloaderHost = mainWindow->downloaderHost();
     //connect(m_downloaderHost, SIGNAL(downloadDone(const WIZOBJECTDATA&, bool)),
     //        SLOT(on_download_finished(const WIZOBJECTDATA&, bool)));
@@ -187,7 +195,7 @@ void CWizAttachmentListView::openAttachment(CWizAttachmentListViewItem* item)
     if (!item)
         return;
 
-    CString strTempPath = ::WizGlobal()->GetTempPath();
+    CString strTempPath = Utils::PathResolve::tempPath();
     const WIZDOCUMENTATTACHMENTDATA& attachment = item->attachment();
 
     CWizDatabase& db = m_dbMgr.db(attachment.strKbGUID);
@@ -342,18 +350,18 @@ void CWizAttachmentListView::on_list_itemDoubleClicked(QListWidgetItem* it)
 
 
 /* ----------------------- CWizAttachmentListWidget ----------------------- */
-CWizAttachmentListWidget::CWizAttachmentListWidget(CWizExplorerApp& app, QWidget* parent)
+CWizAttachmentListWidget::CWizAttachmentListWidget(QWidget* parent)
     : CWizPopupWidget(parent)
-    , m_app(app)
-    , m_list(new CWizAttachmentListView(app, this))
+    , m_list(new CWizAttachmentListView(this))
 {
     // FIXME
+    QString strTheme = "default";
     setContentsMargins(0, 20, 0, 0);
 
-    QIcon iconAddAttachment = ::WizLoadSkinIcon(m_app.userSettings().skin(), "document_add_attachment");
+    QIcon iconAddAttachment = ::WizLoadSkinIcon(strTheme, "document_add_attachment");
     QAction* actionAddAttach = new QAction(iconAddAttachment, tr("Add attachments"), this);
     connect(actionAddAttach, SIGNAL(triggered()), SLOT(on_addAttachment_clicked()));
-    m_btnAddAttachment = new CWizButton(app, this);
+    m_btnAddAttachment = new CWizButton(this);
     m_btnAddAttachment->setAction(actionAddAttach);
 
     QHBoxLayout* layoutHeader = new QHBoxLayout();
@@ -376,7 +384,7 @@ void CWizAttachmentListWidget::setDocument(const WIZDOCUMENTDATA& doc)
     m_list->setDocument(doc);;
 
     // reset permission
-    if (m_app.databaseManager().db(doc.strKbGUID).CanEditDocument(doc)) {
+    if (CWizDatabaseManager::instance()->db(doc.strKbGUID).CanEditDocument(doc)) {
         m_btnAddAttachment->setEnabled(true);
     } else {
         m_btnAddAttachment->setEnabled(false);

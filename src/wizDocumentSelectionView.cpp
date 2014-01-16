@@ -8,6 +8,8 @@
 #include "wizmainwindow.h"
 #include "share/wizDatabaseManager.h"
 
+using namespace Core::Internal;
+
 #define WIZ_SELECTION_ITEM_MAX 5
 #define WIZ_SELECTION_ITEM_MARGIN_Y 200
 #define WIZ_SELECTION_ITEM_OFFSET_X 50
@@ -62,8 +64,8 @@ CWizDocumentSelectionView::CWizDocumentSelectionView(CWizExplorerApp& app, QWidg
 {
     MainWindow* mainWindow = qobject_cast<MainWindow*>(app.mainWindow());
     CWizDocumentListView* listView = qobject_cast<CWizDocumentListView*>(mainWindow->DocumentsCtrl());
-    m_thumbCache = listView->thumbCache();
-    connect(m_thumbCache, SIGNAL(loaded(const WIZABSTRACT&)), SLOT(on_thumbCache_loaded(const WIZABSTRACT&)));
+    //m_thumbCache = listView->thumbCache();
+    //connect(m_thumbCache, SIGNAL(loaded(const WIZABSTRACT&)), SLOT(on_thumbCache_loaded(const WIZABSTRACT&)));
 
     QVBoxLayout* layout = new QVBoxLayout();
     setLayout(layout);
@@ -97,7 +99,7 @@ void CWizDocumentSelectionView::requestDocuments(const CWizDocumentDataArray& ar
     CWizDocumentDataArray::iterator it;
     for(it = m_docs.begin(); it != m_docs.end(); it++) {
         const WIZDOCUMENTDATAEX& doc = *it;
-        m_thumbCache->load(doc.strKbGUID, doc.strGUID);
+        //m_thumbCache->load(doc.strKbGUID, doc.strGUID);
     }
 }
 

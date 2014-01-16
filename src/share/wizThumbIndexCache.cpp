@@ -3,6 +3,8 @@
 #include <QDebug>
 
 #include "wizDatabaseManager.h"
+#include "wizDatabase.h"
+#include "utils/logger.h"
 
 #define WIZNOTE_THUMB_CACHE_MAX 1000
 #define WIZNOTE_THUMB_CACHE_RESET 300

@@ -14,6 +14,9 @@
 #include "mac/wizmachelper.h"
 #endif
 
+#include <extensionsystem/pluginmanager.h>
+#include <coreplugin/icore.h>
+
 #include "wizDocumentWebView.h"
 #include "wizactions.h"
 #include "wizAboutDialog.h"
@@ -39,22 +42,28 @@
 #include "wizEditorToolBar.h"
 #include "wizProgressDialog.h"
 #include "wizDocumentSelectionView.h"
-#include "share/wizGroupMessage.h"
 #include "share/wizObjectDataDownloader.h"
-#include "share/wizUserAvatar.h"
 #include "wizDocumentTransitionView.h"
+#include "messagelistview.h"
 
-#include "sync/wizkmsync.h"
 #include "wizPopupButton.h"
 #include "widgets/wizUserInfoWidget.h"
-#include "share/wizApiEntry.h"
-#include "sync/wizCloudPool.h"
+#include "sync/apientry.h"
+#include "sync/wizkmsync.h"
 
 #include "wizUserVerifyDialog.h"
 
+#include "plugindialog.h"
+
+#include "notecomments.h"
+
+using namespace Core;
+using namespace Core::Internal;
+using namespace WizService::Internal;
 
 MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     : QMainWindow(parent)
+    , m_core(new ICore(this))
     , m_dbMgr(dbMgr)
     , m_progress(new CWizProgressDialog(this))
     , m_settings(new CWizUserSettings(dbMgr.db()))
@@ -62,10 +71,10 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     , m_syncTimer(new QTimer(this))
     , m_searchIndexer(new CWizSearchIndexer(m_dbMgr))
     , m_upgrade(new CWizUpgrade())
-    , m_certManager(new CWizCertManager(*this))
+    //, m_certManager(new CWizCertManager(*this))
     , m_cipherForm(new CWizUserCipherForm(*this, this))
     , m_objectDownloaderHost(new CWizObjectDataDownloaderHost(dbMgr, this))
-    , m_avatarDownloaderHost(new CWizUserAvatarDownloaderHost(dbMgr.db().GetAvatarPath(), this))
+    //, m_avatarDownloaderHost(new CWizUserAvatarDownloaderHost(dbMgr.db().GetAvatarPath(), this))
     , m_transitionView(new CWizDocumentTransitionView(this))
     #ifndef Q_OS_MAC
     , m_labelNotice(NULL)
@@ -77,6 +86,8 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     , m_actions(new CWizActions(*this, this))
     , m_category(new CWizCategoryView(*this, this))
     , m_documents(new CWizDocumentListView(*this, this))
+    , m_noteList(NULL)
+    , m_msgList(new MessageListView(this))
     , m_documentSelection(new CWizDocumentSelectionView(*this, this))
     , m_doc(new CWizDocumentView(*this, this))
     , m_history(new CWizDocumentViewHistory())
@@ -89,7 +100,7 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     connect(qApp, SIGNAL(lastWindowClosed()), qApp, SLOT(quit())); // Qt bug: Qt5 bug
     qApp->installEventFilter(this);
 
-    CWizCloudPool::instance()->init(&m_dbMgr);
+    //CWizCloudPool::instance()->init(&m_dbMgr);
 
     // search and full text search
     QThread *threadFTS = new QThread();
@@ -105,7 +116,7 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     // syncing thread
     connect(m_sync, SIGNAL(processLog(const QString&)), SLOT(on_syncProcessLog(const QString&)));
     connect(m_sync, SIGNAL(syncFinished(int, QString)), SLOT(on_syncDone(int, QString)));
-    connect(m_syncTimer, SIGNAL(timeout()), SLOT(on_actionSync_triggered()));
+    connect(m_syncTimer, SIGNAL(timeout()), SLOT(on_actionAutoSync_triggered()));
     int nInterval = m_settings->syncInterval();
     if (nInterval == 0) {
         m_syncTimer->setInterval(15 * 60 * 1000);   // default 15 minutes
@@ -114,11 +125,11 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
     }
 
     if (nInterval != -1) {
-        QTimer::singleShot(3 * 1000, this, SLOT(on_actionSync_triggered()));
+        QTimer::singleShot(3 * 1000, this, SLOT(on_actionAutoSync_triggered()));
     }
 
     // misc settings
-    m_avatarDownloaderHost->setDefault(::WizGetSkinResourcePath(userSettings().skin()) + "avatar_default.png");
+    //m_avatarDownloaderHost->setDefault(::WizGetSkinResourcePath(userSettings().skin()) + "avatar_default.png");
 
     // GUI
     initActions();
@@ -135,6 +146,8 @@ MainWindow::MainWindow(CWizDatabaseManager& dbMgr, QWidget *parent)
 #ifdef Q_OS_MAC
     setupFullScreenMode(this);
 #endif // Q_OS_MAC
+
+    WizService::NoteComments::init();
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -160,10 +173,11 @@ void MainWindow::on_application_aboutToQuit()
 
 void MainWindow::cleanOnQuit()
 {
+    m_category->saveState();
     saveStatus();
 
     // FIXME : if document not valid will lead crash
-    m_doc->web()->saveDocument(false);
+    //m_doc->web()->saveDocument(false);
 
     m_sync->stopSync();
     m_searchIndexer->abort();
@@ -259,15 +273,15 @@ MainWindow::~MainWindow()
 
 void MainWindow::saveStatus()
 {
-    CWizSettings settings(WizGetSettingsFileName());
-    settings.setValue("window/geometry", saveGeometry());
-    settings.setValue("window/splitter", m_splitter->saveState());
+    QSettings* settings = ExtensionSystem::PluginManager::globalSettings();
+    settings->setValue("Window/Geometry", saveGeometry());
+    settings->setValue("Window/Splitter", m_splitter->saveState());
 }
 
 void MainWindow::restoreStatus()
 {
-    CWizSettings settings(WizGetSettingsFileName());
-    QByteArray geometry = settings.value("window/geometry").toByteArray();
+    QSettings* settings = ExtensionSystem::PluginManager::globalSettings();
+    QByteArray geometry = settings->value("Window/Geometry").toByteArray();
 
     // main window
     if (geometry.isEmpty()) {
@@ -278,7 +292,7 @@ void MainWindow::restoreStatus()
         restoreGeometry(geometry);
     }
 
-    m_splitter->restoreState(settings.value("window/splitter").toByteArray());
+    m_splitter->restoreState(settings->value("Window/Splitter").toByteArray());
 }
 
 void MainWindow::initActions()
@@ -288,8 +302,8 @@ void MainWindow::initActions()
     m_animateSync->setIcons("sync");
 
     connect(m_doc->web(), SIGNAL(statusChanged()), SLOT(on_editor_statusChanged()));
-    connect(m_doc->web()->page(), SIGNAL(contentsChanged()), SLOT(on_document_contentChanged()));
-    connect(m_doc->web()->page(), SIGNAL(selectionChanged()), SLOT(on_document_contentChanged()));
+    //connect(m_doc->web()->page(), SIGNAL(contentsChanged()), SLOT(on_document_contentChanged()));
+    //connect(m_doc->web()->page(), SIGNAL(selectionChanged()), SLOT(on_document_contentChanged()));
 
     on_editor_statusChanged();
 }
@@ -496,13 +510,13 @@ void MainWindow::initToolBar()
 
     m_toolBar->addWidget(new CWizFixedSpacer(QSize(60, 1), m_toolBar));
 
-    CWizButton* buttonSync = new CWizButton(*this, m_toolBar);
+    CWizButton* buttonSync = new CWizButton(m_toolBar);
     buttonSync->setAction(m_actions->actionFromName(WIZACTION_GLOBAL_SYNC));
     m_toolBar->addWidget(buttonSync);
 
     m_toolBar->addWidget(new CWizFixedSpacer(QSize(20, 1), m_toolBar));
 
-    CWizButton* buttonNew = new CWizButton(*this, m_toolBar);
+    CWizButton* buttonNew = new CWizButton(m_toolBar);
     buttonNew->setAction(m_actions->actionFromName(WIZACTION_GLOBAL_NEW_DOCUMENT));
     m_toolBar->addWidget(buttonNew);
 
@@ -552,20 +566,31 @@ void MainWindow::initClient()
     m_transitionView->hide();
 
     m_splitter->addWidget(m_category);
-    m_splitter->addWidget(createListView());
+
+    QWidget* wlist = new QWidget(this);
+    QHBoxLayout* layoutList = new QHBoxLayout();
+    layoutList->setContentsMargins(0, 0, 0, 0);
+    layoutList->setSpacing(0);
+    layoutList->addWidget(createListView());
+    layoutList->addWidget(m_msgList);
+    wlist->setLayout(layoutList);
+    m_splitter->addWidget(wlist);
     m_splitter->addWidget(documentPanel);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 0);
     m_splitter->setStretchFactor(2, 1);
+
+    m_msgList->hide();
 }
 
 QWidget* MainWindow::createListView()
 {
-    QWidget* view = new QWidget(this);
+    m_noteList = new QWidget(this);
+    m_noteList->setMinimumWidth(100);
     QVBoxLayout* layoutList = new QVBoxLayout();
     layoutList->setContentsMargins(0, 0, 0, 0);
     layoutList->setSpacing(0);
-    view->setLayout(layoutList);
+    m_noteList->setLayout(layoutList);
 
     QHBoxLayout* layoutActions = new QHBoxLayout();
     layoutActions->setContentsMargins(0, 0, 0, 0);
@@ -604,7 +629,7 @@ QWidget* MainWindow::createListView()
     layoutList->addWidget(line2);
     layoutList->addWidget(m_documents);
 
-    return view;
+    return m_noteList;
 }
 
 void MainWindow::on_documents_documentCountChanged()
@@ -615,7 +640,9 @@ void MainWindow::on_documents_documentCountChanged()
 
 void MainWindow::on_documents_hintChanged(const QString& strHint)
 {
-    m_labelDocumentsHint->setText(strHint);
+    QFontMetrics fmx(font());
+    QString strMsg = fmx.elidedText(strHint, Qt::ElideRight, 150);
+    m_labelDocumentsHint->setText(strMsg);
 }
 
 void MainWindow::on_documents_viewTypeChanged(int type)
@@ -628,15 +655,10 @@ void MainWindow::on_documents_sortingTypeChanged(int type)
     m_documents->resetItemsSortingType(type);
 }
 
-void MainWindow::on_document_requestView(const WIZDOCUMENTDATA& doc)
-{
-    viewDocument(doc, false);
-}
-
-void MainWindow::on_document_contentChanged()
-{
-    m_doc->setModified(m_doc->web()->page()->isModified());
-}
+//void MainWindow::on_document_contentChanged()
+//{
+//    m_doc->setModified(m_doc->web()->page()->isModified());
+//}
 
 
 //void MainWindow::resetNotice()
@@ -668,17 +690,20 @@ void MainWindow::init()
     connect(m_category, SIGNAL(newDocument()), SLOT(on_actionNewNote_triggered()));
     m_category->init();
 
+    connect(m_msgList, SIGNAL(itemSelectionChanged()), SLOT(on_message_itemSelectionChanged()));
     connect(m_documents, SIGNAL(itemSelectionChanged()), SLOT(on_documents_itemSelectionChanged()));
+}
 
-    connect(m_doc->web(), SIGNAL(requestView(const WIZDOCUMENTDATA&)),
-            SLOT(on_document_requestView(const WIZDOCUMENTDATA&)));
+void MainWindow::on_actionAutoSync_triggered()
+{
+    m_sync->startSync();
+    m_animateSync->startPlay();
+    m_syncTimer->stop();
 }
 
 void MainWindow::on_actionSync_triggered()
 {
-    m_certManager->downloadUserCert();
-
-    m_sync->startSync();
+    m_sync->startSync(false);
     m_animateSync->startPlay();
     m_syncTimer->stop();
 }
@@ -912,8 +937,14 @@ void MainWindow::on_actionLogout_triggered()
 
 void MainWindow::on_actionAbout_triggered()
 {
-    CWizAboutDialog dlg;
-    dlg.exec();
+    CWizAboutDialog dialog(this);
+    dialog.exec();
+}
+
+void MainWindow::on_actionAboutPlugins_triggered()
+{
+    Core::Internal::PluginDialog dialog(this);
+    dialog.exec();
 }
 
 void MainWindow::on_actionPreference_triggered()
@@ -927,7 +958,7 @@ void MainWindow::on_actionPreference_triggered()
 
 void MainWindow::on_actionFeedback_triggered()
 {
-    QString strUrl = CWizApiEntry::getFeedbackUrl();
+    QString strUrl = WizService::ApiEntry::feedbackUrl();
 
     if (strUrl.isEmpty())
         return;
@@ -983,7 +1014,7 @@ void MainWindow::on_search_doSearch(const QString& keywords)
     }
 
     if (m_searcher) {
-        disconnect(m_searcher);
+        m_searcher->disconnect(this);
         m_searcher->abort();
     }
 
@@ -1103,16 +1134,35 @@ void MainWindow::on_category_itemSelectionChanged()
     if (!category)
         return;
 
-    QString kbGUID = category->selectedItemKbGUID();
-    if (!kbGUID.isEmpty()) {
-        resetPermission(kbGUID, "");
-    }
+    // FIXME: use id instead of name.
+    QString strName = category->currentItem()->text(0);
+    if (strName == CATEGORY_MESSAGES_ALL ||
+            strName == CATEGORY_MESSAGES_SEND_TO_ME ||
+            strName == CATEGORY_MESSAGES_MODIFY ||
+            strName == CATEGORY_MESSAGES_COMMENTS ||
+            strName == CATEGORY_MESSAGES_SEND_FROM_ME) {
+        m_msgList->show();
+        m_noteList->hide();
 
-    category->getDocuments(arrayDocument);
-    m_documents->setDocuments(arrayDocument);
+        CWizMessageDataArray arrayMsg;
+        m_dbMgr.db().getLastestMessages(arrayMsg);
+        m_msgList->setMessages(arrayMsg);
 
-    if (arrayDocument.empty()) {
-        on_documents_itemSelectionChanged();
+        return;
+    } else {
+        m_noteList->show();
+        m_msgList->hide();
+        QString kbGUID = category->selectedItemKbGUID();
+        if (!kbGUID.isEmpty()) {
+            resetPermission(kbGUID, "");
+        }
+
+        category->getDocuments(arrayDocument);
+        m_documents->setDocuments(arrayDocument);
+
+        if (arrayDocument.empty()) {
+            on_documents_itemSelectionChanged();
+        }
     }
 }
 
@@ -1125,23 +1175,28 @@ void MainWindow::on_documents_itemSelectionChanged()
     m_documents->getSelectedDocuments(arrayDocument);
 
     if (arrayDocument.size() == 1) {
-        //if (!m_doc->isVisible()) {
-        //    m_doc->show();
-        //    m_documentSelection->hide();
-        //    //m_doc->resize(m_documentSelection->size());
-        //}
-
         if (!m_bUpdatingSelection) {
             viewDocument(arrayDocument[0], true);
         }
-    } else if (arrayDocument.size() > 1) {
-        //if (!m_documentSelection->isVisible()) {
-        //    m_documentSelection->show();
-        //    m_doc->hide();
-        //    //m_documentSelection->resize(m_doc->size());
-        //}
-//
-        //m_documentSelection->requestDocuments(arrayDocument);
+    }
+}
+
+void MainWindow::on_message_itemSelectionChanged()
+{
+    m_cipherForm->hide();
+
+    QList<WIZMESSAGEDATA> listMsg;
+    m_msgList->selectedMessages(listMsg);
+
+    if (listMsg.size() == 1) {
+        WIZMESSAGEDATA msg(listMsg[0]);
+        WIZDOCUMENTDATA doc;
+        if (!m_dbMgr.db(msg.kbGUID).DocumentFromGUID(msg.documentGUID, doc)) {
+            qDebug() << "can't find note from message info: " << msg.title;
+            return;
+        }
+
+        viewDocument(doc, true);
     }
 }
 
@@ -1180,7 +1235,7 @@ void MainWindow::resetPermission(const QString& strKbGUID, const QString& strOwn
     // Admin, Super, do anything
     if (nPerm == WIZ_USERGROUP_ADMIN || nPerm == WIZ_USERGROUP_SUPER) {
         // enable editing
-        m_doc->setReadOnly(false, isGroup);
+        //m_doc->setReadOnly(false, isGroup);
 
         // enable create tag
 
@@ -1192,7 +1247,7 @@ void MainWindow::resetPermission(const QString& strKbGUID, const QString& strOwn
 
     // Editor, only disable create tag
     } else if (nPerm == WIZ_USERGROUP_EDITOR) {
-        m_doc->setReadOnly(false, isGroup);
+        //m_doc->setReadOnly(false, isGroup);
         m_actions->actionFromName(WIZACTION_GLOBAL_NEW_DOCUMENT)->setEnabled(true);
         //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(true);
 
@@ -1201,20 +1256,20 @@ void MainWindow::resetPermission(const QString& strKbGUID, const QString& strOwn
         m_actions->actionFromName(WIZACTION_GLOBAL_NEW_DOCUMENT)->setEnabled(true);
 
         // author is owner
-        QString strUserId = m_dbMgr.db().getUserId();
-        if (strOwner == strUserId) {
-            m_doc->setReadOnly(false, isGroup);
-            //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(true);
+        //QString strUserId = m_dbMgr.db().getUserId();
+        //if (strOwner == strUserId) {
+        //    m_doc->setReadOnly(false, isGroup);
+        //    //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(true);
 
-        // not owner
-        } else {
-            m_doc->setReadOnly(true, isGroup);
-            //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(false);
-        }
+        //// not owner
+        //} else {
+        //    m_doc->setReadOnly(true, isGroup);
+        //    //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(false);
+        //}
 
     // reader
     } else if (nPerm == WIZ_USERGROUP_READER) {
-        m_doc->setReadOnly(true, isGroup);
+        //m_doc->setReadOnly(true, isGroup);
         m_actions->actionFromName(WIZACTION_GLOBAL_NEW_DOCUMENT)->setEnabled(false);
         //m_actions->actionFromName("actionDeleteCurrentNote")->setEnabled(false);
     } else {
@@ -1228,23 +1283,25 @@ void MainWindow::viewDocument(const WIZDOCUMENTDATA& data, bool addToHistory)
 
     CWizDocument* doc = new CWizDocument(m_dbMgr.db(data.strKbGUID), data);
 
-    if (doc->GUID() == m_doc->web()->document().strGUID)
+    if (doc->GUID() == m_doc->note().strGUID)
         return;
 
-    bool forceEdit = false;
-    if (doc->GUID() == m_documentForEditing.strGUID) {
-        m_documentForEditing = WIZDOCUMENTDATA();
-        forceEdit = true;
-    }
+    //bool forceEdit = false;
+    //if (doc->GUID() == m_documentForEditing.strGUID) {
+    //    m_documentForEditing = WIZDOCUMENTDATA();
+    //    forceEdit = true;
+    //}
 
     resetPermission(data.strKbGUID, data.strOwner);
 
-    if (!m_doc->viewDocument(data, forceEdit))
-        return;
+    ICore::emitViewNoteRequested(m_doc, data);
 
-    if (addToHistory) {
-        m_history->addHistory(data);
-    }
+    //if (!m_doc->viewDocument(data, forceEdit))
+    //    return;
+
+    //if (addToHistory) {
+    //    m_history->addHistory(data);
+    //}
 
     //m_actions->actionFromName("actionGoBack")->setEnabled(m_history->canBack());
     //m_actions->actionFromName("actionGoForward")->setEnabled(m_history->canForward());
@@ -1351,11 +1408,6 @@ QObject* MainWindow::CreateWizObject(const QString& strObjectID)
     }
 
     return NULL;
-}
-
-void MainWindow::ResetInitialStyle()
-{
-    m_doc->web()->initEditorStyle();
 }
 
 void MainWindow::SetSavingDocument(bool saving)
